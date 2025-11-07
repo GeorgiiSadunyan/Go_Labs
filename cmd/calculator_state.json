@@ -1,0 +1,21 @@
+{
+  "variables": {
+    "x": 3,
+    "y": 6
+  },
+  "string_variables": {
+    "z": "{\n  \"slideshow\": {\n    \"author\": \"Yours Truly\", \n    \"date\": \"date of publication\", \n    \"slides\": [\n      {\n        \"title\": \"Wake up to WonderWidgets!\", \n        \"type\": \"all\"\n      }, \n      {\n        \"items\": [\n          \"Why \u003cem\u003eWonderWidgets\u003c/em\u003e are great\", \n          \"Who \u003cem\u003ebuys\u003c/em\u003e WonderWidgets\"\n        ], \n        \"title\": \"Overview\", \n        \"type\": \"all\"\n      }\n    ], \n    \"title\": \"Sample Slide Show\"\n  }\n}\n"
+  },
+  "history": [
+    "x=3",
+    "y = 2*3",
+    "x * y",
+    "x",
+    "2 + 2 * 2",
+    "z = curl https://httpbin.org/json",
+    "z",
+    "2 + 3",
+    "5+4",
+    "привет"
+  ]
+}
