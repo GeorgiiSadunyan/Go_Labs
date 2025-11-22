@@ -391,13 +391,15 @@ func (i *Interpreter) classifyAndExecute(userInput string) (string, error) {
 			// Проверим, нужно ли сначала получить содержимое сайта (для сводки и т.п.)
 			// Для простоты: если app == "chrome" или "firefox" — просто открываем сайт
 			// Если app == "curl" или что-то другое — можно добавить обработку
-			if app == "chrome" || app == "firefox" {
+			switch app {
+				
+			case "chrome", "firefox":
 				err := i.launchApp(app, target)
 				if err != nil {
 					return "", err
 				}
 				return fmt.Sprintf("Сайт %s успешно открыт", target), nil
-			} else if app == "curl" {
+			case "curl":
 				// Обработка curl + сводка (старая логика)
 				content, err := i.executeCurl("curl " + target)
 				if err != nil {
@@ -455,7 +457,7 @@ func (i *Interpreter) classifyAndExecute(userInput string) (string, error) {
 				}
 
 				return summaryResp.Choices[0].Message.Content, nil
-			} else {
+			default:
 				// Неизвестное приложение для сайта
 				return fmt.Sprintf("Неизвестное приложение для сайта: %s", app), nil
 			}
