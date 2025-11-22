@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 // === Структуры для DeepSeek API ===
@@ -37,6 +38,12 @@ var SafeDirs = []string{
 var AppPaths = map[string]string{
 	"browser": "firefox", // или "firefox", "chromium", "brave"
 	"player":  "vlc",           // или "mpv", "mpc-hc"
+}
+
+type LaunchCommand struct {
+	Type   *string `json:"type"`   // "file", "site", или null
+	Target *string `json:"target"` // путь к файлу или URL
+	App    *string `json:"app"`    // "vlc", "chrome", и т.д.
 }
 
 type ChatCompletionResponse struct {
@@ -285,28 +292,12 @@ type ClassificationResult struct {
 
 func (i *Interpreter) classifyAndExecute(userInput string) (string, error) {
 	// 1. Отправляем пользовательский ввод в DeepSeek для классификации
-	classifyPrompt := fmt.Sprintf(`Распознай команду пользователя. Если пользователь просит открыть сайт и что-то сделать с его содержимым (например, дать краткую сводку), извлеки URL и цель. Ответь в формате JSON: {"action": "...", "url": "..."} или {"action": null, "url": null}, если команда не подходит. Команда: %s`, userInput)
+	classifyPrompt := fmt.Sprintf(`Распознай команду пользователя. Если пользователь просит открыть файл (например, видео) или сайт, извлеки тип (file / site), путь/URL и цель (браузер, проигрыватель и т.п.). Ответь в формате JSON: {"type": "file"/"site", "target": "имя_файла_или_URL", "app": "vlc"/"chrome"/null}. Если команда не подходит — верни {"type": null, "target": null, "app": null}. Команда: %s`, userInput)
 
-
-	// Подготовка тела запроса
-	// rawReq := map[string]interface{}{
-	// 	"model": "deepseek-chat",
-	// 	"messages": []Message{
-	// 		{
-	// 			Role:    "system",
-	// 			Content: "Ты классификатор команд. Всегда отвечай в формате JSON.",
-	// 		},
-	// 		{
-	// 			Role:    "user",
-	// 			Content: classifyPrompt,
-	// 		},
-	// 	},
-	// 	"temperature": 0.1,
-	// 	"response_format": map[string]string{"type": "json_object"},
-	// }
-	classifyReq := ChatCompletionRequest{
-		Model: "deepseek-chat",
-		Messages: []Message{
+	// Подготовка тела запроса вручную, чтобы добавить response_format
+	rawReq := map[string]interface{}{
+		"model": "deepseek-chat",
+		"messages": []Message{
 			{
 				Role:    "system",
 				Content: "Ты классификатор команд. Всегда отвечай в формате JSON.",
@@ -316,15 +307,16 @@ func (i *Interpreter) classifyAndExecute(userInput string) (string, error) {
 				Content: classifyPrompt,
 			},
 		},
-		Temperature: 0.1, // низкая температура для стабильности
-		ResponseFormat: map[string]string{"type": "json_object"}, // Запрашиваем JSON
+		"temperature": 0.1,
+		"response_format": map[string]string{"type": "json_object"}, // ✅ Правильное поле
 	}
 
-	jsonData, err := json.Marshal(classifyReq)
+	jsonData, err := json.Marshal(rawReq)
 	if err != nil {
 		return "", err
 	}
 
+	// === Код аутентификации и отправки запроса (копия из sendToDeepSeek) ===
 	user := "41-2" // или другой
 	password := "U0dMUjFs" // или другой
 
@@ -362,7 +354,8 @@ func (i *Interpreter) classifyAndExecute(userInput string) (string, error) {
 
 	classificationJSON := apiResp.Choices[0].Message.Content
 
-	var result ClassificationResult
+	// === Новая структура для результата классификации ===
+	var result LaunchCommand // используем структуру, объявленную ранее
 	if err := json.Unmarshal([]byte(classificationJSON), &result); err != nil {
 		// Если JSON не удалось распарсить — это не команда, а обычный вопрос
 		// Отправляем как обычный вопрос
@@ -370,69 +363,107 @@ func (i *Interpreter) classifyAndExecute(userInput string) (string, error) {
 	}
 
 	// 2. Проверяем, была ли распознана команда
-	if result.URL != nil && result.Action != nil {
-		url := *result.URL
-		action := *result.Action
-		// target := *result.Target
+	if result.Type != nil && result.Target != nil && result.App != nil {
+		cmdType := *result.Type
+		target := *result.Target
+		app := *result.App
 
-		// 3. Вызываем curl для получения содержимого
-		content, err := i.executeCurl("curl " + url)
-		if err != nil {
-			return "", err
+		switch cmdType {
+		case "file":
+			// Найти файл в безопасных директориях
+			filePath, err := i.findFileInSafeDirs(target)
+			if err != nil {
+				return "", err
+			}
+			// Запустить приложение с файлом
+			err = i.launchApp(app, filePath)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Файл %s успешно открыт в %s", filePath, app), nil
+
+		case "site":
+			// Проверим, что target — URL
+			if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+				target = "https://" + target
+			}
+
+			// Проверим, нужно ли сначала получить содержимое сайта (для сводки и т.п.)
+			// Для простоты: если app == "chrome" или "firefox" — просто открываем сайт
+			// Если app == "curl" или что-то другое — можно добавить обработку
+			if app == "chrome" || app == "firefox" {
+				err := i.launchApp(app, target)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Сайт %s успешно открыт", target), nil
+			} else if app == "curl" {
+				// Обработка curl + сводка (старая логика)
+				content, err := i.executeCurl("curl " + target)
+				if err != nil {
+					return "", err
+				}
+				summaryPrompt := fmt.Sprintf(`На основе следующего содержимого сайта: \n\n%s\n\nДай краткую сводку.`, content)
+
+				// === Отправляем содержимое в DeepSeek для генерации сводки ===
+				summaryReq := map[string]interface{}{
+					"model": "deepseek-chat",
+					"messages": []Message{
+						{
+							Role:    "system",
+							Content: "Ты помощник по анализу содержимого веб-сайтов.",
+						},
+						{
+							Role:    "user",
+							Content: summaryPrompt,
+						},
+					},
+					"temperature": 0.7,
+				}
+
+				jsonData, err = json.Marshal(summaryReq)
+				if err != nil {
+					return "", err
+				}
+
+				req, err = http.NewRequest("POST", "http://deproxy.kchugalinskiy.ru/deeproxy/api/completions", bytes.NewBuffer(jsonData))
+				if err != nil {
+					return "", err
+				}
+
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", "Basic "+encodedAuth)
+
+				resp, err = client.Do(req)
+				if err != nil {
+					return "", err
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					body, _ := io.ReadAll(resp.Body)
+					return "", fmt.Errorf("ошибка от API: %d, тело: %s", resp.StatusCode, string(body))
+				}
+
+				var summaryResp ChatCompletionResponse
+				if err := json.NewDecoder(resp.Body).Decode(&summaryResp); err != nil {
+					return "", err
+				}
+
+				if len(summaryResp.Choices) == 0 {
+					return "", fmt.Errorf("API вернул пустой ответ")
+				}
+
+				return summaryResp.Choices[0].Message.Content, nil
+			} else {
+				// Неизвестное приложение для сайта
+				return fmt.Sprintf("Неизвестное приложение для сайта: %s", app), nil
+			}
+
+		default:
+			// Неизвестный тип — обычный вопрос
+			return i.sendToDeepSeek(userInput)
 		}
-
-		// 4. Отправляем содержимое и действие в DeepSeek для выполнения
-		summaryPrompt := fmt.Sprintf(`На основе следующего содержимого сайта: \n\n%s\n\n%s`, content, action)
-
-		summaryReq := ChatCompletionRequest{
-			Model: "deepseek-chat",
-			Messages: []Message{
-				{
-					Role:    "system",
-					Content: "Ты помощник по анализу содержимого веб-сайтов.",
-				},
-				{
-					Role:    "user",
-					Content: summaryPrompt,
-				},
-			},
-			Temperature: 0.7,
-		}
-
-		jsonData, err = json.Marshal(summaryReq)
-		if err != nil {
-			return "", err
-		}
-
-		req, err = http.NewRequest("POST", "http://deproxy.kchugalinskiy.ru/deeproxy/api/completions", bytes.NewBuffer(jsonData))
-		if err != nil {
-			return "", err
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Basic "+encodedAuth)
-
-		resp, err = client.Do(req)
-		if err != nil {
-			return "", err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return "", fmt.Errorf("ошибка от API: %d, тело: %s", resp.StatusCode, string(body))
-		}
-
-		var summaryResp ChatCompletionResponse
-		if err := json.NewDecoder(resp.Body).Decode(&summaryResp); err != nil {
-			return "", err
-		}
-
-		if len(summaryResp.Choices) == 0 {
-			return "", fmt.Errorf("API вернул пустой ответ")
-		}
-
-		return summaryResp.Choices[0].Message.Content, nil
 	} else {
 		// Не распознано как команда — обычный вопрос
 		return i.sendToDeepSeek(userInput)
@@ -441,60 +472,71 @@ func (i *Interpreter) classifyAndExecute(userInput string) (string, error) {
 
 
 func (i *Interpreter) findFileInSafeDirs(filename string) (string, error) {
+	// Проверим, не является ли filename абсолютным путём (небезопасно)
+	if filepath.IsAbs(filename) {
+		return "", fmt.Errorf("абсолютные пути запрещены")
+	}
+
+	// Нормализуем имя файла, чтобы избежать обхода директорий
+	filename = filepath.Clean(filename)
+	if strings.HasPrefix(filename, "..") {
+		return "", fmt.Errorf("путь выходит за пределы безопасных директорий")
+	}
+
 	for _, dir := range SafeDirs {
-		// Обходим директории
-		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil // Пропускаем ошибки доступа
-			}
-			if info.IsDir() {
-				return nil
-			}
-			if strings.Contains(strings.ToLower(filepath.Base(path)), strings.ToLower(filename)) {
-				// Найден файл
-				// Проверяем, что путь начинается с одной из безопасных директорий
-				absPath, _ := filepath.Abs(path)
-				for _, safeDir := range SafeDirs {
-					absSafeDir, _ := filepath.Abs(safeDir)
-					if strings.HasPrefix(absPath, absSafeDir) {
-						// Возвращаем путь
-						// Это нужно, чтобы выйти из Walk
-						return filepath.SkipDir // Останавливаем обход
-					}
-				}
-			}
-			return nil
-		})
-		if err == filepath.SkipDir {
-			// Найден файл — повторный поиск в Walk не нужен
-			// Нужно заново пройти и вернуть путь
-			// Упрощённый способ: пройти снова и вернуть первый совпадающий
-			var foundPath string
-			filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return nil
-				}
-				if info.IsDir() {
-					return nil
-				}
-				if strings.Contains(strings.ToLower(filepath.Base(path)), strings.ToLower(filename)) {
-					absPath, _ := filepath.Abs(path)
-					for _, safeDir := range SafeDirs {
-						absSafeDir, _ := filepath.Abs(safeDir)
-						if strings.HasPrefix(absPath, absSafeDir) {
-							foundPath = path
-							return filepath.SkipAll // Прервать весь Walk
-						}
-					}
-				}
-				return nil
-			})
-			if foundPath != "" {
-				return foundPath, nil
-			}
+		fullPath := filepath.Join(dir, filename)
+		_, err := os.Stat(fullPath)
+		if err == nil {
+			return fullPath, nil
 		}
 	}
+
 	return "", fmt.Errorf("файл не найден в безопасных директориях: %s", filename)
+}
+
+
+func (i *Interpreter) launchApp(appName, arg string) error {
+	var cmd *exec.Cmd
+
+	switch appName {
+	case "chrome":
+		switch runtime.GOOS {
+		case "windows":
+			cmd = exec.Command("cmd", "/c", "start", "chrome", arg)
+		case "darwin":
+			cmd = exec.Command("open", "-a", "Google Chrome", arg)
+		case "linux":
+			cmd = exec.Command("firefox", arg)
+		default:
+			return fmt.Errorf("браузер chrome не поддерживается на этой ОС")
+		}
+	case "firefox":
+		switch runtime.GOOS {
+		case "windows":
+			cmd = exec.Command("cmd", "/c", "start", "firefox", arg)
+		case "darwin":
+			cmd = exec.Command("open", "-a", "Firefox", arg)
+		case "linux":
+			cmd = exec.Command("firefox", arg)
+		default:
+			return fmt.Errorf("браузер firefox не поддерживается на этой ОС")
+		}
+	case "vlc":
+		switch runtime.GOOS {
+		case "windows":
+			cmd = exec.Command("vlc", arg)
+		case "darwin":
+			cmd = exec.Command("/Applications/VLC.app/Contents/MacOS/VLC", arg)
+		case "linux":
+			cmd = exec.Command("vlc", arg)
+		default:
+			return fmt.Errorf("проигрыватель vlc не поддерживается на этой ОС")
+		}
+	default:
+		return fmt.Errorf("приложение %s не поддерживается", appName)
+	}
+
+	return cmd.Start()
 }
 
 
