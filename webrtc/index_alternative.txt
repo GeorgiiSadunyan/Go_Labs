@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go Super App</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #202124; color: #e8eaed; margin: 0; padding: 20px; }
+        
+        /* Табы */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #5f6368; padding-bottom: 10px; }
+        .tab-btn { background: none; border: none; color: #9aa0a6; font-size: 18px; cursor: pointer; padding: 10px; transition: 0.2s; }
+        .tab-btn:hover { color: #e8eaed; }
+        .tab-btn.active { color: #8ab4f8; border-bottom: 2px solid #8ab4f8; }
+        .tab-content { display: none; animation: fadeIn 0.3s; }
+        .tab-content.active { display: block; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Общие стили форм */
+        input[type="text"] { padding: 10px; border-radius: 4px; border: 1px solid #5f6368; background: #3c4043; color: white; outline: none; margin-right: 10px; }
+        input:focus { border-color: #8ab4f8; }
+        button { padding: 10px 20px; background: #8ab4f8; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: #202124; transition: 0.2s; }
+        button:hover { opacity: 0.9; }
+        button:disabled { background: #5f6368; cursor: not-allowed; }
+
+        /* Калькулятор */
+        .calc-box { background: #292a2d; padding: 20px; border-radius: 8px; max-width: 600px; }
+        .result { margin-top: 15px; font-size: 18px; color: #81c995; font-family: monospace; }
+        
+        /* История */
+        .history-list { margin-top: 20px; color: #9aa0a6; }
+        .history-item { padding: 8px; border-bottom: 1px solid #3c4043; }
+
+        /* WebRTC */
+        .video-container { position: relative; max-width: 800px; margin-top: 20px; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; }
+        #remoteVideo { width: 100%; height: 100%; object-fit: cover; }
+        #localVideo { position: absolute; bottom: 20px; right: 20px; width: 150px; height: 100px; border: 2px solid rgba(255,255,255,0.3); border-radius: 4px; object-fit: cover; transform: scaleX(-1); background: #333; }
+        
+        /* Модалка входящего звонка */
+        #incomingAlert { display: none; background: #292a2d; border: 1px solid #8ab4f8; padding: 15px; border-radius: 8px; margin-top: 20px; width: fit-content; }
+        .status-badge { display: inline-block; padding: 4px 8px; background: #3c4043; border-radius: 4px; font-size: 12px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab('calc')">🧮 Калькулятор</button>
+        <button class="tab-btn" onclick="openTab('history')">📜 История</button>
+        <button class="tab-btn" onclick="openTab('webrtc')">📹 Звонок</button>
+    </div>
+
+    <div id="calc" class="tab-content active">
+        <div class="calc-box">
+            <h3>Консоль команд</h3>
+            <p style="color:#9aa0a6; font-size: 14px;">Примеры: <code>2+2</code>, <code>curl google.com</code>, <code>x = 10 * 5</code></p>
+            <div style="display:flex;">
+                <input type="text" id="cmdInput" placeholder="Введите команду..." style="flex-grow:1;">
+                <button onclick="sendCmd()">Выполнить</button>
+            </div>
+            <div id="calcResult" class="result"></div>
+        </div>
+    </div>
+
+    <div id="history" class="tab-content">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <h3>История операций</h3>
+            <button onclick="loadHistory()" style="padding: 5px 10px; font-size: 12px;">Обновить</button>
+        </div>
+        <div id="historyList" class="history-list">Загрузка...</div>
+    </div>
+
+    <div id="webrtc" class="tab-content">
+        <div style="margin-bottom: 20px; background: #292a2d; padding: 20px; border-radius: 8px;">
+            <div id="loginSection">
+                <h3>1. Вход</h3>
+                <input type="text" id="usernameInput" placeholder="Ваше имя (напр. user1)">
+                <button onclick="login()">Войти</button>
+            </div>
+
+            <div id="callSection" style="display:none; margin-top:15px; border-top: 1px solid #3c4043; padding-top:15px;">
+                <div class="status-badge">Вы вошли как: <b id="myUsernameDisplay"></b></div>
+                <h3>2. Звонок</h3>
+                <input type="text" id="targetInput" placeholder="Имя друга (напр. user2)">
+                <button id="btnCall" onclick="startSession()">Позвонить</button>
+                <button onclick="hangup()" class="btn-danger" style="background:#f28b82; color:black; display:none;" id="btnHangup">Сбросить</button>
+                <div id="statusMsg" style="color: #8ab4f8; margin-top: 10px; font-size: 14px;">Готов к звонку</div>
+            </div>
+
+            <div id="incomingAlert">
+                <span>Входящий звонок!</span>
+                <button onclick="acceptCall()" style="background:#81c995; color:black;">Принять</button>
+                <button onclick="declineCall()" style="background:#f28b82; color:black;">Отклонить</button>
+            </div>
+        </div>
+
+        <div class="video-container">
+            <video id="remoteVideo" autoplay playsinline></video>
+            <video id="localVideo" autoplay playsinline muted></video>
+        </div>
+    </div>
+
+    <script>
+        // === ЛОГИКА ТАБОВ ===
+        function openTab(name) {
+            document.querySelectorAll('.tab-content').forEach(d => d.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(name).classList.add('active');
+            event.target.classList.add('active');
+            if(name === 'history') loadHistory();
+        }
+
+        // === ЛОГИКА КАЛЬКУЛЯТОРА ===
+        async function sendCmd() {
+            const cmd = document.getElementById('cmdInput').value;
+            const resBox = document.getElementById('calcResult');
+            resBox.innerText = "Вычисление...";
+            try {
+                const res = await fetch('/api/calc', {
+                    method: 'POST',
+                    body: JSON.stringify({command: cmd}),
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await res.json();
+                if(data.error) resBox.innerText = "Ошибка: " + data.error;
+                else resBox.innerText = "> " + data.result;
+            } catch(e) { resBox.innerText = "Ошибка сети"; }
+        }
+
+        async function loadHistory() {
+            const list = document.getElementById('historyList');
+            try {
+                const res = await fetch('/api/history');
+                const data = await res.json();
+                list.innerHTML = data.length ? data.map(item => `<div class="history-item">${item}</div>`).join('') : "История пуста";
+            } catch(e) { list.innerHTML = "Ошибка загрузки"; }
+        }
+
+        // === ЛОГИКА WEBRTC (ВОССТАНОВЛЕННАЯ) ===
+        const API_URL = '/api';
+        const WS_URL = 'ws://' + window.location.host + '/ws'; // Автоматически определяет хост (localhost:8080)
+        
+        let token = '';
+        let myUsername = '';
+        let ws = null;
+        let peerConnection = null;
+        let localStream = null;
+        let currentSessionId = null;
+        let isCaller = false;
+
+        const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+        async function login() {
+            const username = document.getElementById('usernameInput').value;
+            if (!username) return alert('Введите имя');
+
+            try {
+                const res = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    body: JSON.stringify({ username }),
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                token = data.token;
+                myUsername = username;
+                
+                document.getElementById('loginSection').style.display = 'none';
+                document.getElementById('callSection').style.display = 'block';
+                document.getElementById('myUsernameDisplay').innerText = myUsername;
+
+                setupLocalVideo();
+                connectWebSocket();
+            } catch (e) { alert('Ошибка входа: ' + e); }
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket(`${WS_URL}?token=${token}`);
+            ws.onopen = () => document.getElementById('statusMsg').innerText = "Онлайн. Готов к звонку.";
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'session_updated') handleSessionUpdate(msg);
+                else if (msg.signal) handleSignal(msg.signal);
+            };
+        }
+
+        async function setupLocalVideo() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('localVideo').srcObject = localStream;
+            } catch (e) { 
+                console.error("Camera error", e); 
+                document.getElementById('statusMsg').innerText = "Ошибка доступа к камере!";
+            }
+        }
+
+        async function startSession() {
+            const target = document.getElementById('targetInput').value;
+            if(!target) return alert("Введите имя друга");
+            isCaller = true;
+            document.getElementById('statusMsg').innerText = "Звоним " + target + "...";
+
+            await fetch(`${API_URL}/session`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetUsername: target, type: 'video' })
+            });
+        }
+
+        async function acceptCall() {
+            document.getElementById('incomingAlert').style.display = 'none';
+            await fetch(`${API_URL}/session/accept`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: currentSessionId })
+            });
+        }
+
+        async function declineCall() {
+            document.getElementById('incomingAlert').style.display = 'none';
+            await fetch(`${API_URL}/session/decline`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: currentSessionId })
+            });
+        }
+
+        async function hangup() {
+            await fetch(`${API_URL}/session`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            resetCallUI();
+        }
+
+        function handleSessionUpdate(data) {
+            currentSessionId = data.sessionId;
+            const status = data.status;
+
+            if (status === 'pending') {
+                if (data.target === myUsername && !isCaller) {
+                    document.getElementById('incomingAlert').style.display = 'block';
+                    document.getElementById('statusMsg').innerText = "Входящий звонок!";
+                }
+            } else if (status === 'active') {
+                document.getElementById('statusMsg').innerText = "Звонок идет!";
+                document.getElementById('btnCall').style.display = 'none';
+                document.getElementById('btnHangup').style.display = 'inline-block';
+                if (isCaller) createOffer();
+            } else if (status === 'declined' || status === 'cancelled') {
+                resetCallUI();
+                document.getElementById('statusMsg').innerText = "Звонок завершен (" + status + ")";
+                if(peerConnection) peerConnection.close();
+            }
+        }
+
+        function resetCallUI() {
+            document.getElementById('incomingAlert').style.display = 'none';
+            document.getElementById('btnCall').style.display = 'inline-block';
+            document.getElementById('btnHangup').style.display = 'none';
+            isCaller = false;
+        }
+
+        // --- WEBRTC P2P LOGIC ---
+        function createPeerConnection() {
+            if (peerConnection) return;
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            if(localStream) localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) sendSignal('ice-candidate', event.candidate);
+            };
+            peerConnection.ontrack = (event) => {
+                document.getElementById('remoteVideo').srcObject = event.streams[0];
+            };
+        }
+
+        async function createOffer() {
+            createPeerConnection();
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            sendSignal('offer', offer);
+        }
+
+        async function handleSignal(signal) {
+            if (!peerConnection) createPeerConnection();
+
+            if (signal.type === 'offer') {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                sendSignal('answer', answer);
+            } else if (signal.type === 'answer') {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data));
+            } else if (signal.type === 'ice-candidate') {
+                try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.data)); } catch (e) {}
+            }
+        }
+
+        function sendSignal(type, data) {
+            ws.send(JSON.stringify({ signal: { type, data } }));
+        }
+    </script>
+</body>
+</html>

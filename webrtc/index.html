@@ -3,452 +3,249 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC Lab Call</title>
+    <title>Go Super App</title>
     <style>
-        /* --- СТИЛИ (CSS) --- */
-        :root {
-            --bg-color: #202124;
-            --card-bg: #292a2d;
-            --primary: #8ab4f8;
-            --danger: #f28b82;
-            --success: #81c995;
-            --text: #e8eaed;
-        }
+        body { font-family: 'Segoe UI', sans-serif; background: #202124; color: #e8eaed; margin: 0; padding: 20px; padding-bottom: 50px; }
+        
+        /* Табы */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #5f6368; padding-bottom: 10px; }
+        .tab-btn { background: none; border: none; color: #9aa0a6; font-size: 18px; cursor: pointer; padding: 10px; transition: 0.2s; }
+        .tab-btn:hover { color: #e8eaed; }
+        .tab-btn.active { color: #8ab4f8; border-bottom: 2px solid #8ab4f8; }
+        .tab-content { display: none; animation: fadeIn 0.3s; }
+        .tab-content.active { display: block; }
 
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text);
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden;
-        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        .container {
-            width: 100%;
-            max-width: 800px;
-            text-align: center;
-            padding: 20px;
-        }
+        /* Общие стили */
+        input[type="text"] { padding: 10px; border-radius: 4px; border: 1px solid #5f6368; background: #3c4043; color: white; outline: none; margin-right: 10px; }
+        input:focus { border-color: #8ab4f8; }
+        button { padding: 10px 20px; background: #8ab4f8; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: #202124; transition: 0.2s; }
+        button:hover { opacity: 0.9; }
 
-        /* Экраны */
-        .screen { display: none; }
-        .screen.active { display: block; animation: fadeIn 0.3s ease; }
+        /* Калькулятор */
+        .calc-box { background: #292a2d; padding: 20px; border-radius: 8px; max-width: 600px; }
+        .result { margin-top: 15px; font-size: 18px; color: #81c995; font-family: monospace; }
+        
+        /* История */
+        .history-list { margin-top: 20px; color: #9aa0a6; }
+        .history-item { padding: 8px; border-bottom: 1px solid #3c4043; }
 
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* WebRTC */
+        .video-container { position: relative; max-width: 800px; margin-top: 20px; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; }
+        #remoteVideo { width: 100%; height: 100%; object-fit: cover; }
+        #localVideo { position: absolute; bottom: 20px; right: 20px; width: 150px; height: 100px; border: 2px solid rgba(255,255,255,0.3); border-radius: 4px; object-fit: cover; transform: scaleX(-1); background: #333; }
+        
+        #incomingAlert { display: none; background: #292a2d; border: 1px solid #8ab4f8; padding: 15px; border-radius: 8px; margin-top: 20px; width: fit-content; }
+        .status-badge { display: inline-block; padding: 4px 8px; background: #3c4043; border-radius: 4px; font-size: 12px; margin-bottom: 10px; }
 
-        /* Формы и кнопки */
-        input {
-            padding: 12px;
-            border-radius: 8px;
-            border: 1px solid #5f6368;
-            background: var(--card-bg);
-            color: white;
-            font-size: 16px;
-            outline: none;
-            width: 250px;
-            margin-bottom: 10px;
-        }
-        input:focus { border-color: var(--primary); }
-
-        button {
-            padding: 12px 24px;
-            border-radius: 8px;
-            border: none;
-            font-size: 16px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: 0.2s;
-            margin: 5px;
-        }
-        .btn-primary { background: var(--primary); color: #202124; }
-        .btn-success { background: var(--success); color: #202124; }
-        .btn-danger { background: var(--danger); color: #202124; }
-        button:hover { opacity: 0.9; transform: scale(1.02); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* Видео контейнер */
-        .video-wrapper {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 16/9;
-            background: #000;
-            border-radius: 16px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            margin-bottom: 20px;
-        }
-
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        /* Remote video (большое) */
-        #remoteVideo { background: #1a1a1a; }
-
-        /* Local video (маленькое в углу) */
-        #localVideo {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            width: 150px;
-            height: 100px;
-            border-radius: 8px;
-            border: 2px solid rgba(255,255,255,0.2);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            transform: scaleX(-1); /* Зеркалим свое видео */
-        }
-
-        /* Модальное окно входящего звонка */
-        #incomingModal {
+        /* ИНФОРМАЦИЯ О СЕРВЕРЕ */
+        .server-info {
             position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--card-bg);
-            padding: 20px 40px;
-            border-radius: 50px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            display: none;
-            z-index: 100;
-            border: 1px solid var(--primary);
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            background: #3c4043;
-            font-size: 12px;
-            margin-bottom: 10px;
+            bottom: 10px;
+            right: 10px;
+            font-size: 14px; /* Чуть крупнее */
+            color: #e8eaed;  /* Светлее текст */
+            background: rgba(0, 0, 0, 0.7); /* Темнее фон */
+            padding: 8px 15px;
+            border-radius: 6px;
+            border: 1px solid #5f6368;
+            z-index: 1000;
         }
     </style>
 </head>
 <body>
 
-    <div id="incomingModal">
-        <span>Входящий звонок от <b id="callerName">...</b></span>
-        <button class="btn-success" onclick="acceptCall()">Принять</button>
-        <button class="btn-danger" onclick="declineCall()">Отклонить</button>
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab('calc')">🧮 Калькулятор</button>
+        <button class="tab-btn" onclick="openTab('history')">📜 История</button>
+        <button class="tab-btn" onclick="openTab('webrtc')">📹 Звонок</button>
     </div>
 
-    <div class="container">
-        <div id="loginScreen" class="screen active">
-            <h1>WebRTC Вход</h1>
-            <p>Введите имя для начала работы</p>
-            <input type="text" id="usernameInput" placeholder="Ваше имя (например: user1)">
-            <br>
-            <button class="btn-primary" onclick="login()">Войти в систему</button>
+    <div id="calc" class="tab-content active">
+        <div class="calc-box">
+            <h3>Консоль команд</h3>
+            <p style="color:#9aa0a6; font-size: 14px;">Примеры: <code>2+2</code>, <code>curl google.com</code>, <code>x = 10 * 5</code></p>
+            <div style="display:flex;">
+                <input type="text" id="cmdInput" placeholder="Введите команду..." style="flex-grow:1;">
+                <button onclick="sendCmd()">Выполнить</button>
+            </div>
+            <div id="calcResult" class="result"></div>
         </div>
+    </div>
 
-        <div id="callScreen" class="screen">
-            <div class="status-badge">Вы вошли как: <span id="myUsernameDisplay"></span></div>
-            
-            <div class="video-wrapper">
-                <video id="remoteVideo" autoplay playsinline></video>
-                <video id="localVideo" autoplay playsinline muted></video>
-                <div id="videoPlaceholder" style="position: absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: #5f6368;">
-                    Ожидание видео...
-                </div>
+    <div id="history" class="tab-content">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <h3>История операций</h3>
+            <button onclick="loadHistory()" style="padding: 5px 10px; font-size: 12px;">Обновить</button>
+        </div>
+        <div id="historyList" class="history-list">Загрузка...</div>
+    </div>
+
+    <div id="webrtc" class="tab-content">
+        <div style="margin-bottom: 20px; background: #292a2d; padding: 20px; border-radius: 8px;">
+            <div id="loginSection">
+                <h3>1. Вход</h3>
+                <input type="text" id="usernameInput" placeholder="Ваше имя (напр. user1)">
+                <button onclick="login()">Войти</button>
             </div>
 
-            <div id="controls">
-                <div id="callForm">
-                    <input type="text" id="targetInput" placeholder="Имя друга (например: user2)">
-                    <button class="btn-primary" id="btnCall" onclick="startSession()">Позвонить</button>
-                </div>
+            <div id="callSection" style="display:none; margin-top:15px; border-top: 1px solid #3c4043; padding-top:15px;">
+                <div class="status-badge">Вы вошли как: <b id="myUsernameDisplay"></b></div>
+                <h3>2. Звонок</h3>
+                <input type="text" id="targetInput" placeholder="Имя друга (напр. user2)">
+                <button id="btnCall" onclick="startSession()">Позвонить</button>
+                <button onclick="hangup()" class="btn-danger" style="background:#f28b82; color:black; display:none;" id="btnHangup">Сбросить</button>
+                <div id="statusMsg" style="color: #8ab4f8; margin-top: 10px; font-size: 14px;">Готов к звонку</div>
+            </div>
 
-                <div id="activeCallControls" style="display: none;">
-                    <button class="btn-danger" onclick="hangup()">Завершить звонок</button>
-                </div>
-                
-                <p id="statusMsg" style="color: #9aa0a6; margin-top: 10px;">Готов к звонку</p>
+            <div id="incomingAlert">
+                <span>Входящий звонок!</span>
+                <button onclick="acceptCall()" style="background:#81c995; color:black;">Принять</button>
+                <button onclick="declineCall()" style="background:#f28b82; color:black;">Отклонить</button>
             </div>
         </div>
+
+        <div class="video-container">
+            <video id="remoteVideo" autoplay playsinline></video>
+            <video id="localVideo" autoplay playsinline muted></video>
+        </div>
+    </div>
+
+    <div class="server-info" id="serverInfoDisplay">
+        Определение IP...
     </div>
 
     <script>
-        // --- КОНФИГУРАЦИЯ ---
-        const API_URL = 'http://' + window.location.host + '/api';
-        const WS_URL = 'ws://' + window.location.host + '/ws';
-        
-        // ICE сервера (используем публичные Google сервера для прохождения NAT)
-        const rtcConfig = {
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-        };
-
-        // --- СОСТОЯНИЕ ---
-        let token = localStorage.getItem('jwt_token') || '';
-        let myUsername = '';
-        let ws = null;
-        let peerConnection = null;
-        let localStream = null;
-        let currentSessionId = null;
-        let isCaller = false;
-
-        // --- UI ФУНКЦИИ ---
-        function showScreen(id) {
-            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
+        // === ЛОГИКА ОПРЕДЕЛЕНИЯ IP (WebRTC Hack) ===
+        async function detectLocalIP() {
+            return new Promise((resolve) => {
+                const pc = new RTCPeerConnection({iceServers: []}); // Создаем локальное соединение
+                pc.createDataChannel(''); // Создаем канал данных, чтобы запустить сбор кандидатов
+                pc.createOffer().then(o => pc.setLocalDescription(o)); // Создаем оффер
+                
+                // Слушаем кандидатов
+                pc.onicecandidate = (e) => {
+                    if (!e.candidate) { 
+                        pc.close(); 
+                        resolve(null); 
+                        return; 
+                    }
+                    // Ищем паттерн IP-адреса (например 192.168.1.5)
+                    const ipMatch = e.candidate.candidate.match(/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/);
+                    if (ipMatch) {
+                        pc.close();
+                        resolve(ipMatch[1]); // Возвращаем найденный IP
+                    }
+                };
+                
+                // Таймаут 1 секунда, если не нашли
+                setTimeout(() => { pc.close(); resolve(null); }, 1000);
+            });
         }
 
-        function setStatus(msg) {
-            document.getElementById('statusMsg').innerText = msg;
-        }
+        (async function() {
+            const host = window.location.host; 
+            const infoBox = document.getElementById('serverInfoDisplay');
+            
+            if (host.includes('localhost') || host.includes('127.0.0.1')) {
+                // Пытаемся найти реальный IP
+                const localIP = await detectLocalIP();
+                if (localIP) {
+                    infoBox.innerHTML = `Ссылка для друга: <b style="color:#8ab4f8">http://${localIP}:8080</b>`;
+                } else {
+                    // Если браузер скрыл IP (для приватности), показываем старую инструкцию
+                    infoBox.innerText = `Локальный вход. IP для друга смотрите в ipconfig`;
+                }
+            } else {
+                // Если зашли уже по IP (например друг)
+                infoBox.innerText = `Подключено к: ${host}`;
+            }
+        })();
 
-        // --- ЛОГИКА АВТОРИЗАЦИИ ---
+        // === ОСТАЛЬНОЙ КОД БЕЗ ИЗМЕНЕНИЙ ===
+        function openTab(name) {
+            document.querySelectorAll('.tab-content').forEach(d => d.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(name).classList.add('active');
+            event.target.classList.add('active');
+            if(name === 'history') loadHistory();
+        }
+        async function sendCmd() {
+            const cmd = document.getElementById('cmdInput').value;
+            const resBox = document.getElementById('calcResult');
+            resBox.innerText = "Вычисление...";
+            try {
+                const res = await fetch('/api/calc', { method: 'POST', body: JSON.stringify({command: cmd}), headers: {'Content-Type': 'application/json'} });
+                const data = await res.json();
+                if(data.error) resBox.innerText = "Ошибка: " + data.error; else resBox.innerText = "> " + data.result;
+            } catch(e) { resBox.innerText = "Ошибка сети"; }
+        }
+        async function loadHistory() {
+            const list = document.getElementById('historyList');
+            try {
+                const res = await fetch('/api/history');
+                const data = await res.json();
+                list.innerHTML = data.length ? data.map(item => `<div class=\"history-item\">${item}</div>`).join('') : "История пуста";
+            } catch(e) { list.innerHTML = "Ошибка загрузки"; }
+        }
+        const API_URL = '/api'; const WS_URL = 'ws://' + window.location.host + '/ws';
+        let token = ''; let myUsername = ''; let ws = null; let peerConnection = null; let localStream = null; let currentSessionId = null; let isCaller = false;
+        const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
         async function login() {
             const username = document.getElementById('usernameInput').value;
             if (!username) return alert('Введите имя');
-
             try {
-                const res = await fetch(`${API_URL}/auth/login`, {
-                    method: 'POST',
-                    body: JSON.stringify({ username }),
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await res.json();
-                token = data.token;
-                myUsername = username;
-                
+                const res = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: JSON.stringify({ username }), headers: { 'Content-Type': 'application/json' } });
+                const data = await res.json(); token = data.token; myUsername = username;
+                document.getElementById('loginSection').style.display = 'none'; document.getElementById('callSection').style.display = 'block';
                 document.getElementById('myUsernameDisplay').innerText = myUsername;
-                connectWebSocket();
-                showScreen('callScreen');
-                setupLocalVideo();
-            } catch (e) {
-                alert('Ошибка входа: ' + e);
-            }
+                setupLocalVideo(); connectWebSocket();
+            } catch (e) { alert('Ошибка входа: ' + e); }
         }
-
-        // --- WEBSOCKET И СИГНАЛИНГ ---
         function connectWebSocket() {
             ws = new WebSocket(`${WS_URL}?token=${token}`);
-            
-            ws.onopen = () => setStatus("WebSocket подключен. Готов.");
-            
-            ws.onmessage = async (event) => {
-                const msg = JSON.parse(event.data);
-
-                // 1. Обновление статуса сессии
-                if (msg.type === 'session_updated') {
-                    handleSessionUpdate(msg);
-                } 
-                // 2. WebRTC сигналы (offer, answer, ice)
-                else if (msg.signal) {
-                    handleSignal(msg.signal);
-                }
-            };
-
-            ws.onclose = () => setStatus("WS отключен");
+            ws.onopen = () => document.getElementById('statusMsg').innerText = "Онлайн. Готов к звонку.";
+            ws.onmessage = (event) => { const msg = JSON.parse(event.data); if (msg.type === 'session_updated') handleSessionUpdate(msg); else if (msg.signal) handleSignal(msg.signal); };
         }
-
-        function handleSessionUpdate(data) {
-            currentSessionId = data.sessionId;
-            const targetUser = data.target === myUsername ? 'Входящий' : data.target;
-
-            if (data.status === 'pending') {
-                // Если я тот, КОМУ звонят - показываем кнопку ответа
-                if (data.target === myUsername) { // target здесь - это получатель звонка
-                     // Внимание: сервер в notifySessionUpdate шлет target как есть.
-                     // Если я Caller, то target - это друг. Если я Target, то target - это я.
-                     // Надо понять, кто звонит. В simple версии сервера Caller/Target жестко заданы.
-                     // Упростим: если статус pending и я не начинал звонок -> это входящий.
-                     if (!isCaller) {
-                         document.getElementById('callerName').innerText = "Друг"; // Сервер не прислал имя Caller в этом событии, упрощаем
-                         document.getElementById('incomingModal').style.display = 'block';
-                         setStatus("Входящий звонок...");
-                     } else {
-                         setStatus("Звоним... Ожидание ответа");
-                     }
-                } else if (isCaller) {
-                    setStatus("Звоним... Ожидание ответа друга");
-                }
-            } else if (data.status === 'active') {
-                document.getElementById('incomingModal').style.display = 'none';
-                document.getElementById('callForm').style.display = 'none';
-                document.getElementById('activeCallControls').style.display = 'block';
-                setStatus("Соединение установлено!");
-                
-                // СЕССИЯ АКТИВНА: Инициатор (Caller) начинает WebRTC P2P
-                if (isCaller) {
-                    createOffer();
-                }
-            } else if (data.status === 'declined' || data.status === 'cancelled') {
-                resetCallUI();
-                setStatus("Звонок завершен (" + data.status + ")");
-                closePeerConnection();
-            }
-        }
-
-        // --- REST API ДЛЯ СЕССИЙ ---
-        async function startSession() {
-            const target = document.getElementById('targetInput').value;
-            if(!target) return alert("Введите имя друга");
-            isCaller = true;
-
-            await fetch(`${API_URL}/session`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targetUsername: target, type: 'video' })
-            });
-            // Дальше ждем WS события session_updated (pending)
-        }
-
-        async function acceptCall() {
-            await fetch(`${API_URL}/session/accept`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId: currentSessionId })
-            });
-            // Ждем WS события session_updated (active)
-        }
-
-        async function declineCall() {
-            await fetch(`${API_URL}/session/decline`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId: currentSessionId })
-            });
-            document.getElementById('incomingModal').style.display = 'none';
-        }
-
-        async function hangup() {
-             await fetch(`${API_URL}/session`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            // Сервер пришлет cancelled
-        }
-
-        // --- WEBRTC LOGIC (P2P) ---
-
         async function setupLocalVideo() {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                document.getElementById('localVideo').srcObject = localStream;
-            } catch (e) {
-                console.error("Нет доступа к камере", e);
-                setStatus("Ошибка доступа к камере!");
-            }
+            try { localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); document.getElementById('localVideo').srcObject = localStream; } 
+            catch (e) { console.error("Camera error", e); document.getElementById('statusMsg').innerText = "Ошибка доступа к камере!"; }
         }
-
+        async function startSession() {
+            const target = document.getElementById('targetInput').value; if(!target) return alert("Введите имя друга"); isCaller = true;
+            document.getElementById('statusMsg').innerText = "Звоним " + target + "...";
+            await fetch(`${API_URL}/session`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ targetUsername: target, type: 'video' }) });
+        }
+        async function acceptCall() { document.getElementById('incomingAlert').style.display = 'none'; await fetch(`${API_URL}/session/accept`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: currentSessionId }) }); }
+        async function declineCall() { document.getElementById('incomingAlert').style.display = 'none'; await fetch(`${API_URL}/session/decline`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: currentSessionId }) }); }
+        async function hangup() { await fetch(`${API_URL}/session`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }); resetCallUI(); }
+        function handleSessionUpdate(data) {
+            currentSessionId = data.sessionId; const status = data.status;
+            if (status === 'pending') { if (data.target === myUsername && !isCaller) { document.getElementById('incomingAlert').style.display = 'block'; document.getElementById('statusMsg').innerText = "Входящий звонок!"; } }
+            else if (status === 'active') { document.getElementById('statusMsg').innerText = "Звонок идет!"; document.getElementById('btnCall').style.display = 'none'; document.getElementById('btnHangup').style.display = 'inline-block'; if (isCaller) createOffer(); }
+            else if (status === 'declined' || status === 'cancelled') { resetCallUI(); document.getElementById('statusMsg').innerText = "Звонок завершен (" + status + ")"; if(peerConnection) peerConnection.close(); }
+        }
+        function resetCallUI() { document.getElementById('incomingAlert').style.display = 'none'; document.getElementById('btnCall').style.display = 'inline-block'; document.getElementById('btnHangup').style.display = 'none'; isCaller = false; }
         function createPeerConnection() {
-            if (peerConnection) return;
-
-            peerConnection = new RTCPeerConnection(rtcConfig);
-
-            // Добавляем локальные треки (видео/аудио)
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            // Когда пришел ICE кандидат (путь через интернет) - шлем его другу через сервер
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    sendSignal('ice-candidate', event.candidate);
-                }
-            };
-
-            // Когда пришло видео от друга
-            peerConnection.ontrack = (event) => {
-                document.getElementById('remoteVideo').srcObject = event.streams[0];
-                document.getElementById('videoPlaceholder').style.display = 'none';
-            };
+            if (peerConnection) return; peerConnection = new RTCPeerConnection(rtcConfig);
+            if(localStream) localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            peerConnection.onicecandidate = (event) => { if (event.candidate) sendSignal('ice-candidate', event.candidate); };
+            peerConnection.ontrack = (event) => { document.getElementById('remoteVideo').srcObject = event.streams[0]; };
         }
-
-        async function createOffer() {
-            createPeerConnection();
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            sendSignal('offer', offer);
-        }
-
+        async function createOffer() { createPeerConnection(); const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer); sendSignal('offer', offer); }
         async function handleSignal(signal) {
             if (!peerConnection) createPeerConnection();
-
-            if (signal.type === 'offer') {
-                // Нам звонят, мы отвечаем
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                sendSignal('answer', answer);
-            } else if (signal.type === 'answer') {
-                // Мы звонили, нам ответили
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data));
-            } else if (signal.type === 'ice-candidate') {
-                // Добавляем сетевой путь
-                try {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(signal.data));
-                } catch (e) { console.error('Error adding ice', e); }
-            }
+            if (signal.type === 'offer') { await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data)); const answer = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(answer); sendSignal('answer', answer); }
+            else if (signal.type === 'answer') { await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data)); }
+            else if (signal.type === 'ice-candidate') { try { await peerConnection.addIceCandidate(new RTCIceCandidate(signal.data)); } catch (e) {} }
         }
-
-        function sendSignal(type, data) {
-            ws.send(JSON.stringify({
-                signal: { type, data }
-            }));
-        }
-
-        function closePeerConnection() {
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
-            }
-            document.getElementById('remoteVideo').srcObject = null;
-            document.getElementById('videoPlaceholder').style.display = 'block';
-        }
-
-        function resetCallUI() {
-            document.getElementById('callForm').style.display = 'block';
-            document.getElementById('activeCallControls').style.display = 'none';
-            document.getElementById('incomingModal').style.display = 'none';
-            isCaller = false;
-        }
-    </script>
-    <script>
+        function sendSignal(type, data) { ws.send(JSON.stringify({ signal: { type, data } })); }
         window.addEventListener('load', async () => {
-        const params = new URLSearchParams(window.location.search);
-        const autoLoginUser = params.get('login');   // Мое имя
-        const autoTarget = params.get('target');     // Кому звонить
-
-        // 1. Автоматический вход (если передан login)
-        if (autoLoginUser) {
-            document.getElementById('usernameInput').value = autoLoginUser;
-            // Вызываем функцию логина, которая у вас уже есть
-            await login(); 
-        }    
-
-        // 2. Автоматический звонок
-        if (autoTarget) {
-            const targetInput = document.getElementById('targetInput');
-            if (targetInput) {
-                targetInput.value = autoTarget;
-                console.log("Цель установлена:", autoTarget);
-
-                // ВАЖНО: Нажимаем кнопку программно
-                // Делаем небольшую задержку (500мс), чтобы интерфейс успел обновиться,
-                // а WebSocket соединение — гарантированно установиться.
-                setTimeout(() => {
-                    console.log("Инициирую авто-звонок...");
-                    
-                    // Вариант А: Если у вас есть функция startSession()
-                    if (typeof startSession === 'function') {
-                        startSession(); 
-                    } 
-                    // Вариант Б: Если функции нет в глобальной области, ищем кнопку и "кликаем"
-                    else {
-                        const callBtn = document.getElementById('btnCall'); // Убедитесь, что ID кнопки совпадает
-                        if (callBtn) callBtn.click();
-                    }
-                    
-                }, 800); // 800 миллисекунд задержки
-            }
-        }
-    });
-</script>
+            const params = new URLSearchParams(window.location.search); const autoLoginUser = params.get('login'); const autoTarget = params.get('target');
+            if (autoLoginUser) { document.getElementById('usernameInput').value = autoLoginUser; try { await login(); } catch (e) {} }
+            if (autoTarget) { const targetInput = document.getElementById('targetInput'); if (targetInput) { targetInput.value = autoTarget; setTimeout(() => { const callBtn = document.getElementById('btnCall'); if (callBtn) callBtn.click(); }, 800); } }
+        });
+    </script>
 </body>
 </html>

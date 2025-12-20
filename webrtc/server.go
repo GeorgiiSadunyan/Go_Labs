@@ -11,20 +11,29 @@ import (
 	"sync"
 	"time"
 
+	"calculator/core" // Импортируем core, чтобы использовать Interpreter
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
 // Встраиваем index.html прямо в бинарник
+//
 //go:embed index.html
 var indexHTML []byte
 
 // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
 var (
-	once       sync.Once
-	serverPort = ":8080"
-	jwtKey     = []byte("my_secret_key_for_lab7")
+	once        sync.Once
+	serverPort  = ":8080"
+	jwtKey      = []byte("my_secret_key_for_lab7")
+	interpreter *core.Interpreter // Ссылка на наш движок калькулятора
 )
+
+// Функция для привязки интерпретатора к серверу
+func SetInterpreter(i *core.Interpreter) {
+	interpreter = i
+}
 
 // --- СТРУКТУРЫ ДАННЫХ ---
 type LoginRequest struct {
@@ -133,6 +142,56 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		r.Header.Set("X-Username", claims.Username)
 		next(w, r)
 	}
+}
+
+// --- СТРУКТУРЫ ДЛЯ КАЛЬКУЛЯТОРА ---
+type CalcRequest struct {
+	Command string `json:"command"`
+}
+type CalcResponse struct {
+	Result string `json:"result"`
+	Error  string `json:"error,omitempty"`
+}
+
+// --- НОВЫЕ ХЕНДЛЕРЫ ---
+
+// POST /api/calc
+func handleCalc(w http.ResponseWriter, r *http.Request) {
+	var req CalcRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad JSON", http.StatusBadRequest)
+		return
+	}
+
+	if interpreter == nil {
+		http.Error(w, "Interpreter not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	// Выполняем команду через ваш core/interpreter.go
+	res, err := interpreter.Execute(req.Command)
+
+	resp := CalcResponse{}
+	if err != nil {
+		resp.Error = err.Error()
+	} else {
+		resp.Result = fmt.Sprintf("%v", res)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GET /api/history
+func handleHistory(w http.ResponseWriter, r *http.Request) {
+	if interpreter == nil {
+		http.Error(w, "Interpreter not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	history := interpreter.GetHistory()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(history)
 }
 
 // --- HTTP HANDLERS ---
@@ -338,24 +397,12 @@ func notifySessionUpdate(s *Session) {
 	sendTo(s.Target)
 }
 
-// --- ЗАПУСК ---
-func Start() string {
-	started := false
-	once.Do(func() {
-		setupRoutes()
-		go func() {
-			if err := http.ListenAndServe(serverPort, nil); err != nil {
-				log.Printf("WebRTC Server Error: %v", err)
-			}
-		}()
-		started = true
-	})
-
-	if !started {
-		return getOutboundIP()
-	}
-	time.Sleep(100 * time.Millisecond)
-	return getOutboundIP()
+func Start() {
+	// Внимание: теперь Start блокирует выполнение (убрали go func),
+	// так как в Docker это основной процесс
+	log.Println("Запуск веб-сервера на :8080...")
+	setupRoutes()
+	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
 }
 
 func setupRoutes() {
@@ -376,6 +423,10 @@ func setupRoutes() {
 	http.HandleFunc("/api/session/accept", cors(authMiddleware(handleAcceptSession)))
 	http.HandleFunc("/api/session/decline", cors(authMiddleware(handleDeclineSession)))
 	http.HandleFunc("/ws", handleWebSocket)
+
+	// НОВЫЕ РОУТЫ КАЛЬКУЛЯТОРА
+	http.HandleFunc("/api/calc", cors(handleCalc))
+	http.HandleFunc("/api/history", cors(handleHistory))
 
 	// Отдаем встроенный HTML файл
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

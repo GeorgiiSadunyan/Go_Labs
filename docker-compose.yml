@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # Чтобы история сохранялась даже после перезапуска контейнера
+      - ./cmd/calculator_state.json:/app/calculator_state.json
